@@ -1,0 +1,57 @@
+name: 'action-cassandra-start-and-stop'
+description: 'Start/stop cassandra server for build test'
+inputs:
+  cassandra_version:
+    description: 'Cassandra server version'
+    required: false
+    default: '4.1.3'
+  cassandra_container_name:
+    description: 'container name'
+    default: 'cassandra-container'
+  stop:
+    description: 'Stop Cassandra server'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - name: Start Cassandra container
+      if: '!inputs.stop'
+      run: |
+        if [ "$(docker ps -aq -f name=${{ inputs.cassandra_container_name }})" ]; then
+            docker rm -f ${{ inputs.cassandra_container_name }}
+        fi
+        mkdir -p ${RUNNER_TEMP}/cassandra_datadir
+        docker run -d --name ${{ inputs.cassandra_container_name }} \
+          -v ${RUNNER_TEMP}/cassandra_datadir:/var/lib/cassandra \
+          -p 9042:9042 \
+          cassandra:${{ inputs.cassandra_version }}
+      shell: bash
+
+    - name: Wait for Cassandra to start
+      if: '!inputs.stop'
+      run: |
+        timeout_seconds=120 
+        start_time=$(date +%s) 
+
+        while ! docker exec ${{ inputs.cassandra_container_name }} cqlsh -e "DESCRIBE KEYSPACES;"; do
+            current_time=$(date +%s)
+            elapsed_time=$((current_time - start_time))
+
+            if [ "$elapsed_time" -ge "$timeout_seconds" ]; then
+                echo "Timeout: Cassandra is not ready within the specified timeout."
+                docker rm -f ${{ inputs.cassandra_container_name }}
+                exit 1
+            fi
+
+            sleep 2
+        done
+        echo "Cassandra is ready."
+      shell: bash
+
+    - name: Delete cassandra container
+      if: 'inputs.stop'
+      run: |
+        if [ "$(docker ps -aq -f name=${{ inputs.cassandra_container_name }})" ]; then
+            docker rm -f ${{ inputs.cassandra_container_name }}
+        fi
+      shell: bash
