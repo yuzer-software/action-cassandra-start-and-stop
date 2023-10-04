@@ -11,6 +11,10 @@ inputs:
   stop:
     description: 'Stop Cassandra server'
     required: false
+outputs:
+  cassandra_host_port:
+    description: "Random host port generated for cassandra container"
+    value: ${{ steps.get-port.outputs.cassandra_host_port }}
 runs:
   using: 'composite'
   steps:
@@ -23,8 +27,15 @@ runs:
         mkdir -p ${RUNNER_TEMP}/cassandra_datadir
         docker run -d --name ${{ inputs.cassandra_container_name }} \
           -v ${RUNNER_TEMP}/cassandra_datadir:/var/lib/cassandra \
-          -p 9042:9042 \
+          -p 9042 \
           cassandra:${{ inputs.cassandra_version }}
+      shell: bash
+
+    - name: Get cassandra host port number
+      id: get-port
+      run : |
+        CASSANDRA_HOST_PORT=$(docker inspect ${{ inputs.cassandra_container_name }} --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
+        echo "cassandra_host_port=${CASSANDRA_HOST_PORT}" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Wait for Cassandra to start
@@ -33,7 +44,7 @@ runs:
         timeout_seconds=120 
         start_time=$(date +%s) 
 
-        while ! docker exec ${{ inputs.cassandra_container_name }} cqlsh -e "DESCRIBE KEYSPACES;"; do
+        while ! cqlsh localhost ${{ steps.get-port.outputs.cassandra_host_port }} -e "DESCRIBE KEYSPACES;"; do
             current_time=$(date +%s)
             elapsed_time=$((current_time - start_time))
 
