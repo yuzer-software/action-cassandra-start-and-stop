@@ -12,8 +12,8 @@ inputs:
     description: 'Stop Cassandra server'
     required: false
 outputs:
-  cassandra_host_port:
-    description: "Random host port generated for cassandra container"
+  cassandra_port:
+    description: "Random host port on which Cassandra is bound."
     value: ${{ steps.get-port.outputs.cassandra_host_port }}
 runs:
   using: 'composite'
@@ -33,6 +33,7 @@ runs:
 
     - name: Get cassandra host port number
       id: get-port
+      if: '!inputs.stop'
       run : |
         CASSANDRA_HOST_PORT=$(docker inspect ${{ inputs.cassandra_container_name }} --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
         echo "cassandra_host_port=${CASSANDRA_HOST_PORT}" >> $GITHUB_OUTPUT
