@@ -45,7 +45,15 @@ runs:
         timeout_seconds=120 
         start_time=$(date +%s) 
 
-        while ! cqlsh localhost ${{ steps.get-port.outputs.cassandra_host_port }} -e "DESCRIBE KEYSPACES;"; do
+        check_cassandra() {
+              if command -v cqlsh >/dev/null 2>&1; then
+                  cqlsh localhost ${{ steps.get-port.outputs.cassandra_host_port }} -e "DESCRIBE KEYSPACES;"
+              else
+                  docker exec ${{ inputs.cassandra_container_name }} cqlsh -e "DESCRIBE KEYSPACES;"
+              fi
+        }
+
+        while ! check_cassandra; do
             current_time=$(date +%s)
             elapsed_time=$((current_time - start_time))
 
