@@ -18,14 +18,22 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Set container name
+      id: prep
+      run: |
+        CASSANDRA_CONTAINER_NAME="${{ inputs.cassandra_container_name }}-${{ github.event.repository.name }}"
+        echo "Container name is $CASSANDRA_CONTAINER_NAME"
+        echo "dcass_container_name=${CASSANDRA_CONTAINER_NAME}" >> $GITHUB_OUTPUT
+      shell: bash
+
     - name: Start Cassandra container
       if: '!inputs.stop'
       run: |
-        if [ "$(docker ps -aq -f name=${{ inputs.cassandra_container_name }})" ]; then
-            docker rm -f ${{ inputs.cassandra_container_name }}
+        if [ "$(docker ps -aq -f name=${{ steps.prep.outputs.dcass_container_name }})" ]; then
+            docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
         fi
         mkdir -p ${RUNNER_TEMP}/cassandra_datadir
-        docker run -d --name ${{ inputs.cassandra_container_name }} \
+        docker run -d --name ${{ steps.prep.outputs.dcass_container_name }} \
           -v ${RUNNER_TEMP}/cassandra_datadir:/var/lib/cassandra \
           -p 9042 \
           cassandra:${{ inputs.cassandra_version }}
@@ -35,7 +43,7 @@ runs:
       id: get-port
       if: '!inputs.stop'
       run : |
-        CASSANDRA_HOST_PORT=$(docker inspect ${{ inputs.cassandra_container_name }} --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
+        CASSANDRA_HOST_PORT=$(docker inspect ${{ steps.prep.outputs.dcass_container_name }} --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
         echo "cassandra_host_port=${CASSANDRA_HOST_PORT}" >> $GITHUB_OUTPUT
       shell: bash
 
@@ -49,7 +57,7 @@ runs:
               if command -v cqlsh >/dev/null 2>&1; then
                   cqlsh localhost ${{ steps.get-port.outputs.cassandra_host_port }} -e "DESCRIBE KEYSPACES;"
               else
-                  docker exec ${{ inputs.cassandra_container_name }} cqlsh -e "DESCRIBE KEYSPACES;"
+                  docker exec ${{ steps.prep.outputs.dcass_container_name }} cqlsh -e "DESCRIBE KEYSPACES;"
               fi
         }
 
@@ -59,7 +67,7 @@ runs:
 
             if [ "$elapsed_time" -ge "$timeout_seconds" ]; then
                 echo "Timeout: Cassandra is not ready within the specified timeout."
-                docker rm -f ${{ inputs.cassandra_container_name }}
+                docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
                 exit 1
             fi
 
@@ -71,7 +79,7 @@ runs:
     - name: Delete cassandra container
       if: 'inputs.stop'
       run: |
-        if [ "$(docker ps -aq -f name=${{ inputs.cassandra_container_name }})" ]; then
-            docker rm -f ${{ inputs.cassandra_container_name }}
+        if [ "$(docker ps -aq -f name=${{ steps.prep.outputs.dcass_container_name }})" ]; then
+            docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
         fi
       shell: bash
