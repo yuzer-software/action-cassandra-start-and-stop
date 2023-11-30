@@ -21,7 +21,9 @@ runs:
     - name: Set container name
       id: prep
       run: |
-        CASSANDRA_CONTAINER_NAME="${{ inputs.cassandra_container_name }}-${{ github.event.repository.name }}"
+        COMMIT_SHA=${{ github.sha }}
+        COMMIT_SHORTREF=${COMMIT_SHA::8}
+        CASSANDRA_CONTAINER_NAME="${{ inputs.cassandra_container_name }}-${{ github.event.repository.name }}-${COMMIT_SHORTREF}"
         echo "Container name is $CASSANDRA_CONTAINER_NAME"
         echo "dcass_container_name=${CASSANDRA_CONTAINER_NAME}" >> $GITHUB_OUTPUT
       shell: bash
