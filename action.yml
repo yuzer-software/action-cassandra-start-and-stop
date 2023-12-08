@@ -32,11 +32,10 @@ runs:
       if: '!inputs.stop'
       run: |
         if [ "$(docker ps -aq -f name=${{ steps.prep.outputs.dcass_container_name }})" ]; then
-            docker rm -vf ${{ steps.prep.outputs.dcass_container_name }}
+            docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
         fi
         mkdir -p ${RUNNER_TEMP}/cassandra_datadir
         docker run -d --name ${{ steps.prep.outputs.dcass_container_name }} \
-          -v ${RUNNER_TEMP}/cassandra_datadir:/var/lib/cassandra \
           -p 9042 \
           cassandra:${{ inputs.cassandra_version }}
       shell: bash
@@ -69,7 +68,7 @@ runs:
 
             if [ "$elapsed_time" -ge "$timeout_seconds" ]; then
                 echo "Timeout: Cassandra is not ready within the specified timeout."
-                docker rm -vf ${{ steps.prep.outputs.dcass_container_name }}
+                docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
                 exit 1
             fi
 
@@ -82,6 +81,6 @@ runs:
       if: 'inputs.stop'
       run: |
         if [ "$(docker ps -aq -f name=${{ steps.prep.outputs.dcass_container_name }})" ]; then
-            docker rm -vf ${{ steps.prep.outputs.dcass_container_name }}
+            docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
         fi
       shell: bash
