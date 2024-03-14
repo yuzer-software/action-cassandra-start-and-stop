@@ -11,9 +11,17 @@ inputs:
   stop:
     description: 'Stop Cassandra server'
     required: false
+  cassandra_container_memory:
+    description: 'Set container max mem for cassandra server'
+    required: false
+    default: '768m'
+  cassandra_jvm_opts:
+    description: 'Set cassandra extra jmv options'
+    required: false
+    default: '-Xms512m -Xmx512m'
 outputs:
   cassandra_port:
-    description: "Random host port on which Cassandra is bound."
+    description: 'Random host port on which Cassandra is bound.'
     value: ${{ steps.get-port.outputs.cassandra_host_port }}
 runs:
   using: 'composite'
@@ -36,6 +44,8 @@ runs:
         fi
         mkdir -p ${RUNNER_TEMP}/cassandra_datadir
         docker run -d --name ${{ steps.prep.outputs.dcass_container_name }} \
+          -m ${{ inputs.cassandra_container_memory }} \
+          -e JVM_EXTRA_OPTS="${{ inputs.cassandra_jvm_opts }}" \
           -p 9042 \
           cassandra:${{ inputs.cassandra_version }}
       shell: bash
@@ -43,7 +53,7 @@ runs:
     - name: Get cassandra host port number
       id: get-port
       if: '!inputs.stop'
-      run : |
+      run: |
         CASSANDRA_HOST_PORT=$(docker inspect ${{ steps.prep.outputs.dcass_container_name }} --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
         echo "cassandra_host_port=${CASSANDRA_HOST_PORT}" >> $GITHUB_OUTPUT
       shell: bash
