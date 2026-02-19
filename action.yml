@@ -11,6 +11,7 @@ inputs:
   stop:
     description: 'Stop Cassandra server'
     required: false
+    type: boolean
   cassandra_container_memory:
     description: 'Set container max mem for cassandra server'
     required: false
@@ -26,18 +27,47 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Set container name
+    - name: Use local cassandra if possible or Docker otherwise
+      # Use local cassandra if possible (and skip all all steps) or use docker (with subsequent steps)
       id: prep
-      run: |
-        COMMIT_SHA=${{ github.sha }}
-        COMMIT_SHORTREF=${COMMIT_SHA::8}
-        CASSANDRA_CONTAINER_NAME="${{ inputs.cassandra_container_name }}-${{ github.event.repository.name }}-${COMMIT_SHORTREF}"
-        echo "Container name is $CASSANDRA_CONTAINER_NAME"
-        echo "dcass_container_name=${CASSANDRA_CONTAINER_NAME}" >> $GITHUB_OUTPUT
       shell: bash
+      env:
+        STOP: ${{ inputs.stop }}
+      # Note: Look at the runner-setup-cassandra repository for details about used scripts.
+      run: |
+        RUNNER_SUFFIX=$(echo "$RUNNER_NAME" | grep -oE '[0-9]+$')
+        SCRIPT_DIR="$HOME/cassandra-$RUNNER_SUFFIX"
+        echo "script_dir=$SCRIPT_DIR" >> $GITHUB_OUTPUT
+
+        if [[ -n "$RUNNER_SUFFIX" ]] && \
+           [[ -f "$SCRIPT_DIR/cassandra-port.sh" ]] && \
+           [[ -f "$SCRIPT_DIR/run-cassandra.sh" ]]; then
+
+            echo "Do not use docker."
+            echo "use_docker=false" >> $GITHUB_OUTPUT
+            if [[ "$STOP" == "true" ]]; then
+                echo "Do not stop cassandra for next job reuse."
+            else
+                echo "Reusing the cassandra of runner $RUNNER_NAME in $SCRIPT_DIR"
+
+                "$SCRIPT_DIR/run-cassandra.sh" || true  # Ignore failures for now: we should fix the runner and its scripts rather than
+                                                        # fallback to docker.
+                if [[ -f "$SCRIPT_DIR/play-cql.sh" ]]; then
+                    "$SCRIPT_DIR/play-cql.sh"
+                fi
+            fi
+        else
+            echo "Using docker"
+            COMMIT_SHA=${{ github.sha }}
+            COMMIT_SHORTREF=${COMMIT_SHA::8}
+            CASSANDRA_CONTAINER_NAME="${{ inputs.cassandra_container_name }}-${{ github.event.repository.name }}-${COMMIT_SHORTREF}"
+            echo "Container name is $CASSANDRA_CONTAINER_NAME"
+            echo "dcass_container_name=${CASSANDRA_CONTAINER_NAME}" >> $GITHUB_OUTPUT
+            echo "use_docker=true" >> $GITHUB_OUTPUT
+        fi
 
     - name: Start Cassandra container
-      if: '!inputs.stop'
+      if: steps.prep.outputs.use_docker == 'true' && !inputs.stop
       run: |
         if [ "$(docker ps -aq -f name=${{ steps.prep.outputs.dcass_container_name }})" ]; then
             docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
@@ -53,13 +83,23 @@ runs:
     - name: Get cassandra host port number
       id: get-port
       if: '!inputs.stop'
-      run: |
-        CASSANDRA_HOST_PORT=$(docker inspect ${{ steps.prep.outputs.dcass_container_name }} --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
-        echo "cassandra_host_port=${CASSANDRA_HOST_PORT}" >> $GITHUB_OUTPUT
       shell: bash
+      env:
+        STOP: ${{ inputs.stop }}
+        SCRIPT_DIR: ${{ steps.prep.outputs.script_dir }}
+      run: |
+        if [[ "${{ steps.prep.outputs.use_docker }}" == "true" ]]; then
+          CASSANDRA_HOST_PORT=$(
+              docker inspect ${{ steps.prep.outputs.dcass_container_name }} \
+                --format '{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}'
+          )
+        else
+          CASSANDRA_HOST_PORT=$("$SCRIPT_DIR/cassandra-port.sh")
+        fi
+        echo "cassandra_host_port=${CASSANDRA_HOST_PORT}" >> $GITHUB_OUTPUT
 
     - name: Wait for Cassandra to start
-      if: '!inputs.stop'
+      if: steps.prep.outputs.use_docker == 'true' && !inputs.stop
       run: |
         timeout_seconds=120 
         start_time=$(date +%s) 
@@ -88,7 +128,7 @@ runs:
       shell: bash
 
     - name: Delete cassandra container
-      if: 'inputs.stop'
+      if: steps.prep.outputs.use_docker == 'true' && inputs.stop
       run: |
         if [ "$(docker ps -aq -f name=${{ steps.prep.outputs.dcass_container_name }})" ]; then
             docker rm -f ${{ steps.prep.outputs.dcass_container_name }}
